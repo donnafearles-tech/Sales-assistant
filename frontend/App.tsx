@@ -267,44 +267,26 @@ const App: React.FC = () => {
 
             try {
                 const originalName = currentFile.item.FileName || currentFile.item.Name || "Unknown";
-                const originalNameUpper = originalName.toUpperCase();
-                
                 const lastDotIndex = originalName.lastIndexOf('.');
                 const ext = lastDotIndex !== -1 ? originalName.substring(lastDotIndex + 1) : '';
-                
-                let newName = "";
-                let category = "";
-                let invoiceNumber = "";
-                let storeName = "";
 
-                // ---------------------------------------------------------
-                // Process all files with Gemini
-                // ---------------------------------------------------------
                 const { base64, mimeType } = await sfService.downloadFileAsBase64(currentFile.item.Id);
-                
-                // Update preview URL if missing
                 const previewUrl = `data:${mimeType};base64,${base64}`;
-                
-                // Gemini extracts details based on the custom sales prompt
+
+                // Vertex AI Document Analysis
                 const analysis = await geminiServiceRef.current.analyzeImageContent(base64, mimeType);
                 
-                category = analysis.documentType;
-                invoiceNumber = analysis.invoiceNumber || "N/A";
-                storeName = analysis.storeAbbreviation;
-                
-                // Apply the exact suggested name from Gemini, keeping the original extension
-                newName = `${analysis.suggestedName}${ext ? '.' + ext : ''}`;
-
-                // Save previewUrl in state
-                setFiles(prev => prev.map(f => f.item.Id === currentFile.item.Id ? { ...f, previewUrl } : f));
+                // Construct final filename: [suggestedName].[ext] (COMPLETELY REMOVING OLD FILENAME)
+                const newName = `${analysis.suggestedName}${ext ? '.' + ext : ''}`;
 
                 setFiles(prev => prev.map((f, idx) => idx === i ? { 
                     ...f, 
                     status: 'renaming', 
-                    suggestedCategory: category,
-                    extractedInvoice: invoiceNumber,
-                    extractedStoreName: storeName,
-                    newName: newName
+                    suggestedCategory: `${analysis.documentType} (${analysis.suffix})`,
+                    extractedInvoice: analysis.invoiceNumber || 'N/A',
+                    extractedStoreName: analysis.storeAbbreviation,
+                    newName: newName,
+                    previewUrl: previewUrl
                 } : f));
 
                 await sfService.renameFile(currentFile.item.Id, newName);
