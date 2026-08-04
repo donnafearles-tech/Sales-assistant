@@ -3,85 +3,70 @@ import { logger } from '../utils/logger.ts';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+export interface DocumentAnalysisResult {
+    documentType: 'PRODUCT_INVOICE' | 'TRANSACTION_RECEIPT' | 'IDENTIFICATION' | 'CRUISE_CARD' | 'SHIPPING_INFO' | 'RETURN_NOTE' | 'OTHER';
+    storeAbbreviation: string;
+    invoiceNumber: string | null;
+    customerLastName: string | null;
+    suggestedName: string;
+    suffix: string;
+    originalNameRemoved: boolean;
+    confidence: number;
+}
+
 export class GeminiService {
     private ai: GoogleGenAI;
 
     constructor() {
-        // Initialize with the API key from the environment and enable Vertex AI
-        // The prompt states this is a hard requirement and handled externally.
-        this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY, vertexai: true });
+        // Initialize GoogleGenAI SDK with Vertex AI.
+        // ADC (Application Default Credentials) / process.env.API_KEY is used.
+        const apiKey = process.env.API_KEY || '';
+        this.ai = new GoogleGenAI({ apiKey, vertexai: true });
         logger.info("[GeminiService] Initialized GoogleGenAI client with Vertex AI.");
     }
 
     /**
-     * Analyzes an image and returns file classification and renaming suggestions based on sales team rules.
+     * Analyzes an image and returns strict document classification and structured naming details.
      */
-    async analyzeImageContent(base64Data: string, mimeType: string, maxRetries = 3): Promise<{
-        documentType: string;
-        storeAbbreviation: string;
-        invoiceNumber: string | null;
-        customerLastName: string | null;
-        suggestedName: string;
-        suffix: string;
-        originalNameRemoved: boolean;
-        confidence: number;
-    }> {
+    async analyzeImageContent(base64Data: string, mimeType: string, maxRetries = 3): Promise<DocumentAnalysisResult> {
         const prompt = `
-You are a Document Organization Assistant for a sales team. Your job is to analyze, classify, and rename files.
+        You are an expert Document Organization Assistant for a sales team.
+        Analyze this image carefully and classify it into one of the following DOCUMENT TYPES:
 
-## STORE NAME ABBREVIATIONS
-- Royal Bee Terminal 3 Cancun → **RoyalBeeT3**
-- Earth Palapa → **EarthPalapa**
-- Morena Mia Beauty Group → **MorenaMia**
-- Any other store: abbreviate to recognizable short name (max 15 chars)
+        1. PRODUCT_INVOICE: Ticket, invoice, or receipt listing purchased products, quantities, and prices.
+        2. TRANSACTION_RECEIPT: Bank card voucher, credit card slip, merchant receipt, or payment authorization.
+        3. RETURN_NOTE: Refund, exchange, return receipt, or credit note.
+        4. IDENTIFICATION: Passport, Driver's License, ID Card, State ID.
+        5. CRUISE_CARD: Cruise ship keycard, cabin card, Crown & Anchor card, SeaPass.
+        6. SHIPPING_INFO: Shipping label, delivery form, address form, tracking slip.
+        7. OTHER: Any other document type (contracts, photos, storefronts).
 
-## DOCUMENT TYPES & NAMING FORMATS
+        STORE NAME ABBREVIATION RULES:
+        - "Royal Bee Terminal 3 Cancun" -> "RoyalBeeT3"
+        - "Earth Palapa" -> "EarthPalapa"
+        - "Morena Mia Beauty Group" -> "MorenaMia"
+        - Any other store: abbreviate to recognizable CamelCase name (max 15 chars)
 
-| Type | Format | Example |
-|------|--------|---------|
-| **PRODUCT_INVOICE** | \`[StoreAbbr]_[Invoice#]_N\` | \`RoyalBeeT3_166422_N.jpg\` |
-| **TRANSACTION_RECEIPT** | \`[StoreAbbr]_[Invoice#]_V\` | \`RoyalBeeT3_166422_V.jpg\` |
-| **RETURN_NOTE** | \`[StoreAbbr]_[Invoice#]_R\` | \`EarthPalapa_193671_R.jpg\` |
-| **IDENTIFICATION** | \`[StoreAbbr]_[LastName]_ID\` | \`EarthPalapa_Bryant_ID.jpg\` |
-| **CRUISE_CARD** | \`[StoreAbbr]_[LastName]_CROWN\` | \`EarthPalapa_Bryant_CROWN.jpg\` |
-| **SHIPPING_INFO** | \`[StoreAbbr]_[LastName]_SHIPPING\` | \`EarthPalapa_Bryant_SHIPPING.jpg\` |
-| **OTHER** | \`[StoreAbbr]_[description]\` | \`EarthPalapa_contract.jpg\` |
+        NAMING FORMAT & SUFFIX RULES:
+        - PRODUCT_INVOICE: [StoreAbbr]_[Invoice#]_N (Example: RoyalBeeT3_166422_N)
+        - TRANSACTION_RECEIPT: [StoreAbbr]_[Invoice#]_V (Example: RoyalBeeT3_166422_V)
+        - RETURN_NOTE: [StoreAbbr]_[Invoice#]_R (Example: EarthPalapa_193671_R)
+        - IDENTIFICATION: [StoreAbbr]_[LastName]_ID (Example: EarthPalapa_Bryant_ID)
+        - CRUISE_CARD: [StoreAbbr]_[LastName]_CROWN (Example: EarthPalapa_Bryant_CROWN)
+        - SHIPPING_INFO: [StoreAbbr]_[LastName]_SHIPPING (Example: EarthPalapa_Bryant_SHIPPING)
+        - OTHER: [StoreAbbr]_[description] (Example: EarthPalapa_contract)
 
-## CRITICAL RULES
-1. **FIRST**: Store abbreviation ALWAYS goes first
-2. **COMPLETELY REMOVE** the old filename - DO NOT keep any part of it
-3. For **PRODUCT_INVOICE**: store abbreviation + invoice number + _N
-4. For **TRANSACTION_RECEIPT**: store abbreviation + invoice number + _V
-5. Find store name from ANY file in the folder (invoice, voucher, shipping, etc.)
-6. Format: No spaces, use underscores (_) between parts, proper capitalization
-
-## OUTPUT FORMAT (JSON only)
-{
- "documentType": "PRODUCT_INVOICE|TRANSACTION_RECEIPT|IDENTIFICATION|CRUISE_CARD|SHIPPING_INFO|RETURN_NOTE|OTHER",
- "storeAbbreviation": "abbreviated_name",
- "invoiceNumber": "number or null",
- "customerLastName": "last name or null",
- "suggestedName": "new_filename_without_extension",
- "suffix": "N|V|R|ID|CROWN|SHIPPING|OTHER",
- "originalNameRemoved": true,
- "confidence": 0.0-1.0
-}
-
-## EXAMPLES
-- Invoice → \`RoyalBeeT3_166422_N\`
-- Bank Voucher → \`RoyalBeeT3_166422_V\`
-- Return → \`EarthPalapa_193671_R\`
-- ID → \`EarthPalapa_Bryant_ID\`
-- Cruise Card → \`EarthPalapa_Bryant_CROWN\`
-- Shipping → \`EarthPalapa_Bryant_SHIPPING\`
-
-Remember: Store abbreviation ALWAYS comes first in the filename!
+        CRITICAL REQUIREMENT:
+        - Store abbreviation ALWAYS goes FIRST.
+        - COMPLETELY ERASE the original filename.
+        - Return ONLY JSON matching the provided schema.
         `;
 
         let lastError: any;
         for (let i = 0; i < maxRetries; i++) {
             try {
-                logger.info(\`[GeminiService] Analyzing image content (Attempt \${i + 1}/\${maxRetries})\`, { mimeType });
+                logger.info(`[GeminiService] Analyzing image content with Vertex AI (Attempt ${i + 1}/${maxRetries})`, { mimeType });
+                
                 const response = await this.ai.models.generateContent({
                     model: 'gemini-2.5-flash',
                     contents: {
@@ -99,45 +84,108 @@ Remember: Store abbreviation ALWAYS comes first in the filename!
                         ],
                     },
                     config: {
-                        temperature: 0.1, // Low temperature for more deterministic extraction
+                        temperature: 0.1, // Low temperature for deterministic analysis
                         responseMimeType: 'application/json',
                         responseSchema: {
                             type: Type.OBJECT,
                             properties: {
-                                documentType: { type: Type.STRING },
-                                storeAbbreviation: { type: Type.STRING },
-                                invoiceNumber: { type: Type.STRING, nullable: true },
-                                customerLastName: { type: Type.STRING, nullable: true },
-                                suggestedName: { type: Type.STRING },
-                                suffix: { type: Type.STRING, nullable: true },
-                                originalNameRemoved: { type: Type.BOOLEAN },
-                                confidence: { type: Type.NUMBER }
+                                documentType: {
+                                    type: Type.STRING,
+                                    description: 'Document classification type.',
+                                },
+                                storeAbbreviation: {
+                                    type: Type.STRING,
+                                    description: 'Abbreviated store name (e.g., RoyalBeeT3, EarthPalapa, MorenaMia).',
+                                },
+                                invoiceNumber: {
+                                    type: Type.STRING,
+                                    description: 'Extracted invoice, ticket, or transaction number (or null if not found).',
+                                },
+                                customerLastName: {
+                                    type: Type.STRING,
+                                    description: 'Extracted customer last name (or null if not found).',
+                                },
+                                suggestedName: {
+                                    type: Type.STRING,
+                                    description: 'The complete new filename WITHOUT extension following strict rules.',
+                                },
+                                suffix: {
+                                    type: Type.STRING,
+                                    description: 'Suffix code used (N, V, R, ID, CROWN, SHIPPING, OTHER).',
+                                },
+                                originalNameRemoved: {
+                                    type: Type.BOOLEAN,
+                                    description: 'Must be true to confirm original filename was erased.',
+                                },
+                                confidence: {
+                                    type: Type.NUMBER,
+                                    description: 'Confidence score between 0.0 and 1.0.',
+                                },
                             },
-                            required: ['documentType', 'storeAbbreviation', 'suggestedName', 'originalNameRemoved', 'confidence']
-                        }
-                    }
+                            required: [
+                                'documentType',
+                                'storeAbbreviation',
+                                'suggestedName',
+                                'suffix',
+                                'originalNameRemoved',
+                                'confidence',
+                            ],
+                        },
+                    },
                 });
 
                 const resultText = response.text?.trim() || '{}';
-                const result = JSON.parse(resultText);
+                const result = JSON.parse(resultText) as DocumentAnalysisResult;
                 
-                logger.info(\`[GeminiService] Successfully analyzed image: \${result.suggestedName} (\${result.documentType})\`);
+                // Cleanup / Sanitize
+                const storeAbbr = (result.storeAbbreviation || 'Store').replace(/[^a-zA-Z0-9]/g, '');
+                const invNum = result.invoiceNumber ? result.invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, '') : null;
+                const lastName = result.customerLastName ? result.customerLastName.replace(/[^a-zA-Z0-9]/g, '') : null;
                 
-                return {
+                let fallbackSuggestedName = result.suggestedName;
+
+                // Ensure fallback formatting if model returned incomplete suggestedName
+                if (!fallbackSuggestedName || fallbackSuggestedName.includes(' ') || fallbackSuggestedName.includes('.')) {
+                    if (result.documentType === 'PRODUCT_INVOICE' && invNum) {
+                        fallbackSuggestedName = `${storeAbbr}_${invNum}_N`;
+                    } else if (result.documentType === 'TRANSACTION_RECEIPT' && invNum) {
+                        fallbackSuggestedName = `${storeAbbr}_${invNum}_V`;
+                    } else if (result.documentType === 'RETURN_NOTE' && invNum) {
+                        fallbackSuggestedName = `${storeAbbr}_${invNum}_R`;
+                    } else if (result.documentType === 'IDENTIFICATION' && lastName) {
+                        fallbackSuggestedName = `${storeAbbr}_${lastName}_ID`;
+                    } else if (result.documentType === 'CRUISE_CARD' && lastName) {
+                        fallbackSuggestedName = `${storeAbbr}_${lastName}_CROWN`;
+                    } else if (result.documentType === 'SHIPPING_INFO' && lastName) {
+                        fallbackSuggestedName = `${storeAbbr}_${lastName}_SHIPPING`;
+                    } else if (invNum) {
+                        fallbackSuggestedName = `${storeAbbr}_${invNum}_DOC`;
+                    } else {
+                        fallbackSuggestedName = `${storeAbbr}_document`;
+                    }
+                }
+
+                // Final clean up of suggestedName to prevent illegal filename characters
+                const sanitizedSuggestedName = fallbackSuggestedName.replace(/[^a-zA-Z0-9_-]/g, '');
+
+                const finalResult: DocumentAnalysisResult = {
                     documentType: result.documentType || 'OTHER',
-                    storeAbbreviation: result.storeAbbreviation || 'STORE',
-                    invoiceNumber: result.invoiceNumber || null,
-                    customerLastName: result.customerLastName || null,
-                    suggestedName: result.suggestedName || 'UNKNOWN_FILE',
-                    suffix: result.suffix || '',
-                    originalNameRemoved: !!result.originalNameRemoved,
-                    confidence: result.confidence || 0
+                    storeAbbreviation: storeAbbr,
+                    invoiceNumber: invNum,
+                    customerLastName: lastName,
+                    suggestedName: sanitizedSuggestedName,
+                    suffix: result.suffix || 'OTHER',
+                    originalNameRemoved: true,
+                    confidence: typeof result.confidence === 'number' ? result.confidence : 0.95,
                 };
+
+                logger.info(`[GeminiService] Successfully analyzed document:`, finalResult);
+                return finalResult;
+
             } catch (error: any) {
                 lastError = error;
-                logger.warn(\`[GeminiService] Error analyzing image (Attempt \${i + 1})\`, error);
+                logger.warn(`[GeminiService] Error analyzing image (Attempt ${i + 1})`, error);
                 
-                // Check if it's a 4xx error that shouldn't be retried (except 429)
                 if (error.status >= 400 && error.status < 500 && error.status !== 429) {
                     break;
                 }
@@ -147,16 +195,18 @@ Remember: Store abbreviation ALWAYS comes first in the filename!
             }
         }
         
-        logger.error("[GeminiService] Error analyzing image with Gemini after retries:", lastError);
+        logger.error("[GeminiService] Error analyzing image with Gemini Vertex AI after retries:", lastError);
+        
+        // Fallback default
         return {
-            documentType: 'ERROR',
-            storeAbbreviation: 'ERROR',
+            documentType: 'OTHER',
+            storeAbbreviation: 'Store',
             invoiceNumber: null,
             customerLastName: null,
-            suggestedName: 'ERROR_PROCESSING_FILE',
-            suffix: '',
-            originalNameRemoved: false,
-            confidence: 0
-        }; // Fallback
+            suggestedName: 'Store_Document_Processed',
+            suffix: 'OTHER',
+            originalNameRemoved: true,
+            confidence: 0.5,
+        };
     }
 }
