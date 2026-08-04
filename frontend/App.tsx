@@ -278,82 +278,51 @@ const App: React.FC = () => {
                 let storeName = "";
 
                 // ---------------------------------------------------------
-                // RULE 1: VIP Files (Filename contains VIP)
+                // Process all files with Gemini
                 // ---------------------------------------------------------
-                if (originalNameUpper.includes("VIP")) {
-                    logger.info(`[Rule] VIP file detected by filename: ${originalName}`);
+                const { base64, mimeType } = await sfService.downloadFileAsBase64(currentFile.item.Id);
+                
+                // Update preview URL if missing
+                const previewUrl = `data:${mimeType};base64,${base64}`;
+                
+                // Gemini extracts category, invoice number, store name, and checks for "customer vip" and "product invoice"
+                const analysis = await geminiServiceRef.current.analyzeImageContent(base64, mimeType);
+                
+                category = analysis.category;
+                invoiceNumber = analysis.invoiceNumber;
+                storeName = analysis.storeName;
+                
+                const safeInvoice = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, '');
+                const safeStoreName = storeName.replace(/[^a-zA-Z0-9\s_-]/g, '').trim().replace(/\s+/g, '_');
+
+                const invPart = safeInvoice !== 'NO_INVOICE' ? safeInvoice : 'INV';
+                const storePart = safeStoreName !== 'UNKNOWN_STORE' ? safeStoreName : 'STORE';
+
+                if (analysis.isCustomerVip) {
+                    logger.info(`[Rule] OCR detected 'customer vip' in file: ${originalName}`);
+                    const parentName = currentFile.item.ParentName || sfPath[sfPath.length - 1]?.name || "FOLDER";
                     
-                    // Get parent folder name (fallback to breadcrumb if not in item)
-                    const parentName = currentFile.item.ParentName || sfPath[sfPath.length - 1]?.name || "";
+                    // Sanitize parent folder name to be safe for filenames
+                    const safeParentName = parentName.replace(/[^a-zA-Z0-9\s_-]/g, '').trim().replace(/\s+/g, '_');
                     
-                    // 1. First characters before space or underscore
-                    const prefixMatch = parentName.split(/[\s_]+/)[0];
-                    const prefix = prefixMatch ? prefixMatch.replace(/[^a-zA-Z0-9]/g, '') : "FOLDER";
-                    
-                    // 2. Numbers located in the parent folder name
-                    const numbersMatch = parentName.match(/\d+/g);
-                    const numbers = numbersMatch ? numbersMatch.join('') : "";
-                    
-                    // 3. Construct name: prefix + numbers + "VIP"
-                    const parts = [prefix];
-                    if (numbers) parts.push(numbers);
-                    parts.push("VIP");
-                    
-                    newName = `${parts.join('_')}${ext ? '.' + ext : ''}`;
+                    // Completely erases the original filename
+                    newName = `${safeParentName}_VIP${ext ? '.' + ext : ''}`;
                     category = "VIP";
-                    invoiceNumber = numbers || "N/A";
-                    
-                    // Simulate a tiny delay for UI since we skip Gemini
-                    await new Promise(res => setTimeout(res, 500));
-                } 
-                // ---------------------------------------------------------
-                // RULE 2: Standard Files & OCR VIP Detection & Product Invoices
-                // ---------------------------------------------------------
-                else {
-                    const { base64, mimeType } = await sfService.downloadFileAsBase64(currentFile.item.Id);
-                    
-                    // Update preview URL if missing
-                    const previewUrl = `data:${mimeType};base64,${base64}`;
-                    
-                    // Gemini extracts category, invoice number, store name, and checks for "customer vip" and "product invoice"
-                    const analysis = await geminiServiceRef.current.analyzeImageContent(base64, mimeType);
-                    
-                    category = analysis.category;
-                    invoiceNumber = analysis.invoiceNumber;
-                    storeName = analysis.storeName;
-                    
-                    const safeInvoice = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, '');
-                    const safeStoreName = storeName.replace(/[^a-zA-Z0-9\s_-]/g, '').trim().replace(/\s+/g, '_');
-
-                    const invPart = safeInvoice !== 'NO_INVOICE' ? safeInvoice : 'INV';
-                    const storePart = safeStoreName !== 'UNKNOWN_STORE' ? safeStoreName : 'STORE';
-
-                    if (analysis.isCustomerVip) {
-                        logger.info(`[Rule] OCR detected 'customer vip' in file: ${originalName}`);
-                        const parentName = currentFile.item.ParentName || sfPath[sfPath.length - 1]?.name || "FOLDER";
-                        
-                        // Sanitize parent folder name to be safe for filenames
-                        const safeParentName = parentName.replace(/[^a-zA-Z0-9\s_-]/g, '').trim().replace(/\s+/g, '_');
-                        
-                        // Completely erases the original filename
-                        newName = `${safeParentName}_VIP${ext ? '.' + ext : ''}`;
-                        category = "VIP";
-                        invoiceNumber = "N/A";
-                    } else if (analysis.isProductInvoice) {
-                        logger.info(`[Rule] Product Invoice detected: ${originalName}`);
-                        // Format: [INVOICE]_[STORENAME]_N.[ext]
-                        // Completely erases the original filename
-                        newName = `${invPart}_${storePart}_N${ext ? '.' + ext : ''}`;
-                        category = "Product_Invoice";
-                    } else {
-                        // Standard fallback: [INVOICE]_[STORENAME]_[CATEGORY].[ext]
-                        // Completely erases the original filename
-                        newName = `${invPart}_${storePart}_${category}${ext ? '.' + ext : ''}`;
-                    }
-
-                    // Save previewUrl in state
-                    setFiles(prev => prev.map(f => f.item.Id === currentFile.item.Id ? { ...f, previewUrl } : f));
+                    invoiceNumber = "N/A";
+                } else if (analysis.isProductInvoice) {
+                    logger.info(`[Rule] Product Invoice detected: ${originalName}`);
+                    // Format: [INVOICE]_[STORENAME]_N.[ext]
+                    // Completely erases the original filename
+                    newName = `${invPart}_${storePart}_N${ext ? '.' + ext : ''}`;
+                    category = "Product_Invoice";
+                } else {
+                    // Standard fallback: [INVOICE]_[STORENAME]_[CATEGORY].[ext]
+                    // Completely erases the original filename
+                    newName = `${invPart}_${storePart}_${category}${ext ? '.' + ext : ''}`;
                 }
+
+                // Save previewUrl in state
+                setFiles(prev => prev.map(f => f.item.Id === currentFile.item.Id ? { ...f, previewUrl } : f));
 
                 setFiles(prev => prev.map((f, idx) => idx === i ? { 
                     ...f, 
