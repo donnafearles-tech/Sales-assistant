@@ -285,41 +285,15 @@ const App: React.FC = () => {
                 // Update preview URL if missing
                 const previewUrl = `data:${mimeType};base64,${base64}`;
                 
-                // Gemini extracts category, invoice number, store name, and checks for "customer vip" and "product invoice"
+                // Gemini extracts details based on the custom sales prompt
                 const analysis = await geminiServiceRef.current.analyzeImageContent(base64, mimeType);
                 
-                category = analysis.category;
-                invoiceNumber = analysis.invoiceNumber;
-                storeName = analysis.storeName;
+                category = analysis.documentType;
+                invoiceNumber = analysis.invoiceNumber || "N/A";
+                storeName = analysis.storeAbbreviation;
                 
-                const safeInvoice = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, '');
-                const safeStoreName = storeName.replace(/[^a-zA-Z0-9\s_-]/g, '').trim().replace(/\s+/g, '_');
-
-                const invPart = safeInvoice !== 'NO_INVOICE' ? safeInvoice : 'INV';
-                const storePart = safeStoreName !== 'UNKNOWN_STORE' ? safeStoreName : 'STORE';
-
-                if (analysis.isCustomerVip) {
-                    logger.info(`[Rule] OCR detected 'customer vip' in file: ${originalName}`);
-                    const parentName = currentFile.item.ParentName || sfPath[sfPath.length - 1]?.name || "FOLDER";
-                    
-                    // Sanitize parent folder name to be safe for filenames
-                    const safeParentName = parentName.replace(/[^a-zA-Z0-9\s_-]/g, '').trim().replace(/\s+/g, '_');
-                    
-                    // Completely erases the original filename
-                    newName = `${safeParentName}_VIP${ext ? '.' + ext : ''}`;
-                    category = "VIP";
-                    invoiceNumber = "N/A";
-                } else if (analysis.isProductInvoice) {
-                    logger.info(`[Rule] Product Invoice detected: ${originalName}`);
-                    // Format: [INVOICE]_[STORENAME]_N.[ext]
-                    // Completely erases the original filename
-                    newName = `${invPart}_${storePart}_N${ext ? '.' + ext : ''}`;
-                    category = "Product_Invoice";
-                } else {
-                    // Standard fallback: [INVOICE]_[STORENAME]_[CATEGORY].[ext]
-                    // Completely erases the original filename
-                    newName = `${invPart}_${storePart}_${category}${ext ? '.' + ext : ''}`;
-                }
+                // Apply the exact suggested name from Gemini, keeping the original extension
+                newName = `${analysis.suggestedName}${ext ? '.' + ext : ''}`;
 
                 // Save previewUrl in state
                 setFiles(prev => prev.map(f => f.item.Id === currentFile.item.Id ? { ...f, previewUrl } : f));

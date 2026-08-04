@@ -14,23 +14,74 @@ export class GeminiService {
     }
 
     /**
-     * Analyzes an image and returns a suggested category name, extracted invoice number, VIP status, store name, and invoice type.
+     * Analyzes an image and returns file classification and renaming suggestions based on sales team rules.
      */
-    async analyzeImageContent(base64Data: string, mimeType: string, maxRetries = 3): Promise<{category: string, invoiceNumber: string, isCustomerVip: boolean, storeName: string, isProductInvoice: boolean}> {
+    async analyzeImageContent(base64Data: string, mimeType: string, maxRetries = 3): Promise<{
+        documentType: string;
+        storeAbbreviation: string;
+        invoiceNumber: string | null;
+        customerLastName: string | null;
+        suggestedName: string;
+        suffix: string;
+        originalNameRemoved: boolean;
+        confidence: number;
+    }> {
         const prompt = `
-        You are an AI assistant helping a salesperson categorize images and extract data from receipts and invoices.
-        Look at this image carefully.
-        1. Determine its primary content category (e.g., 'Product', 'Receipt', 'ID_Card', 'Contract', 'Store_Front', 'Document', 'Signature'). Use max 2 words, separated by underscores.
-        2. Extract the invoice number, receipt number, or order number if visible in the document (e.g., "Invoice #: 166510" -> "166510"). If you cannot find any identifying number, return 'NO_INVOICE'.
-        3. Check if the exact phrase "customer vip" or "vip customer" (case-insensitive) appears anywhere in the document text. Return true if it does, false otherwise.
-        4. Extract the store name or company name at the top of the receipt (e.g., 'Royal Bee Terminal 3 Cancun', 'Morena Mia Beauty Group'). Return 'UNKNOWN_STORE' if not found.
-        5. Determine if this document is a standard product invoice or receipt (contains a list of purchased products, quantities, and prices). Return true if it is.
+You are a Document Organization Assistant for a sales team. Your job is to analyze, classify, and rename files.
+
+## STORE NAME ABBREVIATIONS
+- Royal Bee Terminal 3 Cancun → **RoyalBeeT3**
+- Earth Palapa → **EarthPalapa**
+- Morena Mia Beauty Group → **MorenaMia**
+- Any other store: abbreviate to recognizable short name (max 15 chars)
+
+## DOCUMENT TYPES & NAMING FORMATS
+
+| Type | Format | Example |
+|------|--------|---------|
+| **PRODUCT_INVOICE** | \`[StoreAbbr]_[Invoice#]_N\` | \`RoyalBeeT3_166422_N.jpg\` |
+| **TRANSACTION_RECEIPT** | \`[StoreAbbr]_[Invoice#]_V\` | \`RoyalBeeT3_166422_V.jpg\` |
+| **RETURN_NOTE** | \`[StoreAbbr]_[Invoice#]_R\` | \`EarthPalapa_193671_R.jpg\` |
+| **IDENTIFICATION** | \`[StoreAbbr]_[LastName]_ID\` | \`EarthPalapa_Bryant_ID.jpg\` |
+| **CRUISE_CARD** | \`[StoreAbbr]_[LastName]_CROWN\` | \`EarthPalapa_Bryant_CROWN.jpg\` |
+| **SHIPPING_INFO** | \`[StoreAbbr]_[LastName]_SHIPPING\` | \`EarthPalapa_Bryant_SHIPPING.jpg\` |
+| **OTHER** | \`[StoreAbbr]_[description]\` | \`EarthPalapa_contract.jpg\` |
+
+## CRITICAL RULES
+1. **FIRST**: Store abbreviation ALWAYS goes first
+2. **COMPLETELY REMOVE** the old filename - DO NOT keep any part of it
+3. For **PRODUCT_INVOICE**: store abbreviation + invoice number + _N
+4. For **TRANSACTION_RECEIPT**: store abbreviation + invoice number + _V
+5. Find store name from ANY file in the folder (invoice, voucher, shipping, etc.)
+6. Format: No spaces, use underscores (_) between parts, proper capitalization
+
+## OUTPUT FORMAT (JSON only)
+{
+ "documentType": "PRODUCT_INVOICE|TRANSACTION_RECEIPT|IDENTIFICATION|CRUISE_CARD|SHIPPING_INFO|RETURN_NOTE|OTHER",
+ "storeAbbreviation": "abbreviated_name",
+ "invoiceNumber": "number or null",
+ "customerLastName": "last name or null",
+ "suggestedName": "new_filename_without_extension",
+ "suffix": "N|V|R|ID|CROWN|SHIPPING|OTHER",
+ "originalNameRemoved": true,
+ "confidence": 0.0-1.0
+}
+
+## EXAMPLES
+- Invoice → \`RoyalBeeT3_166422_N\`
+- Bank Voucher → \`RoyalBeeT3_166422_V\`
+- Return → \`EarthPalapa_193671_R\`
+- ID → \`EarthPalapa_Bryant_ID\`
+- Cruise Card → \`EarthPalapa_Bryant_CROWN\`
+- Shipping → \`EarthPalapa_Bryant_SHIPPING\`
+
+Remember: Store abbreviation ALWAYS comes first in the filename!
         `;
 
         let lastError: any;
         for (let i = 0; i < maxRetries; i++) {
             try {
-                logger.info(`[GeminiService] Analyzing image content (Attempt ${i + 1}/${maxRetries})`, { mimeType });
+                logger.info(\`[GeminiService] Analyzing image content (Attempt \${i + 1}/\${maxRetries})\`, { mimeType });
                 const response = await this.ai.models.generateContent({
                     model: 'gemini-2.5-flash',
                     contents: {
@@ -53,28 +104,16 @@ export class GeminiService {
                         responseSchema: {
                             type: Type.OBJECT,
                             properties: {
-                                category: {
-                                    type: Type.STRING,
-                                    description: 'The category of the image, max 2 words with underscores.'
-                                },
-                                invoiceNumber: {
-                                    type: Type.STRING,
-                                    description: 'The extracted invoice or receipt number. NO_INVOICE if none found.'
-                                },
-                                isCustomerVip: {
-                                    type: Type.BOOLEAN,
-                                    description: 'True if the text "customer vip" or "vip customer" is found in the image.'
-                                },
-                                storeName: {
-                                    type: Type.STRING,
-                                    description: 'The name of the store or company at the top of the receipt. UNKNOWN_STORE if not found.'
-                                },
-                                isProductInvoice: {
-                                    type: Type.BOOLEAN,
-                                    description: 'True if the document is a receipt or invoice listing purchased products and prices.'
-                                }
+                                documentType: { type: Type.STRING },
+                                storeAbbreviation: { type: Type.STRING },
+                                invoiceNumber: { type: Type.STRING, nullable: true },
+                                customerLastName: { type: Type.STRING, nullable: true },
+                                suggestedName: { type: Type.STRING },
+                                suffix: { type: Type.STRING, nullable: true },
+                                originalNameRemoved: { type: Type.BOOLEAN },
+                                confidence: { type: Type.NUMBER }
                             },
-                            required: ['category', 'invoiceNumber', 'isCustomerVip', 'storeName', 'isProductInvoice']
+                            required: ['documentType', 'storeAbbreviation', 'suggestedName', 'originalNameRemoved', 'confidence']
                         }
                     }
                 });
@@ -82,24 +121,21 @@ export class GeminiService {
                 const resultText = response.text?.trim() || '{}';
                 const result = JSON.parse(resultText);
                 
-                let category = result.category || 'Image';
-                let invoiceNumber = result.invoiceNumber || 'NO_INVOICE';
-                let isCustomerVip = !!result.isCustomerVip;
-                let storeName = result.storeName || 'UNKNOWN_STORE';
-                let isProductInvoice = !!result.isProductInvoice;
+                logger.info(\`[GeminiService] Successfully analyzed image: \${result.suggestedName} (\${result.documentType})\`);
                 
-                // Clean up the response just in case
-                category = category.replace(/[^a-zA-Z0-9_]/g, '');
-                invoiceNumber = invoiceNumber.replace(/[^a-zA-Z0-9_-]/g, '');
-                
-                if (!category) category = 'Image';
-                if (!invoiceNumber) invoiceNumber = 'NO_INVOICE';
-
-                logger.info(`[GeminiService] Successfully analyzed image: Category=${category}, Invoice=${invoiceNumber}, isCustomerVip=${isCustomerVip}, Store=${storeName}, isProductInvoice=${isProductInvoice}`);
-                return { category, invoiceNumber, isCustomerVip, storeName, isProductInvoice };
+                return {
+                    documentType: result.documentType || 'OTHER',
+                    storeAbbreviation: result.storeAbbreviation || 'STORE',
+                    invoiceNumber: result.invoiceNumber || null,
+                    customerLastName: result.customerLastName || null,
+                    suggestedName: result.suggestedName || 'UNKNOWN_FILE',
+                    suffix: result.suffix || '',
+                    originalNameRemoved: !!result.originalNameRemoved,
+                    confidence: result.confidence || 0
+                };
             } catch (error: any) {
                 lastError = error;
-                logger.warn(`[GeminiService] Error analyzing image (Attempt ${i + 1})`, error);
+                logger.warn(\`[GeminiService] Error analyzing image (Attempt \${i + 1})\`, error);
                 
                 // Check if it's a 4xx error that shouldn't be retried (except 429)
                 if (error.status >= 400 && error.status < 500 && error.status !== 429) {
@@ -112,6 +148,15 @@ export class GeminiService {
         }
         
         logger.error("[GeminiService] Error analyzing image with Gemini after retries:", lastError);
-        return { category: 'Uncategorized', invoiceNumber: 'ERROR', isCustomerVip: false, storeName: 'UNKNOWN_STORE', isProductInvoice: false }; // Fallback
+        return {
+            documentType: 'ERROR',
+            storeAbbreviation: 'ERROR',
+            invoiceNumber: null,
+            customerLastName: null,
+            suggestedName: 'ERROR_PROCESSING_FILE',
+            suffix: '',
+            originalNameRemoved: false,
+            confidence: 0
+        }; // Fallback
     }
 }
