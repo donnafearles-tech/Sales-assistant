@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileImage, Folder, CheckCircle2, XCircle, Loader2, ArrowRight, Eye } from 'lucide-react';
+import { FileImage, Folder, CheckCircle2, XCircle, Loader2, ArrowRight, Eye, Tag } from 'lucide-react';
 import { FileProcessState, ShareFileItem } from '../types.ts';
 
 interface FileListItemProps {
@@ -8,7 +8,7 @@ interface FileListItemProps {
 }
 
 export const FileListItem: React.FC<FileListItemProps> = ({ fileState, onFolderClick }) => {
-    const { item, status, newName, errorMessage, suggestedCategory, extractedInvoice, extractedStoreName, previewUrl } = fileState;
+    const { item, status, newName, errorMessage, docType, shortName, storeUsed, extractedInvoice, confidence, previewUrl } = fileState;
     const [isHovered, setIsHovered] = useState(false);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 
@@ -22,7 +22,7 @@ export const FileListItem: React.FC<FileListItemProps> = ({ fileState, onFolderC
                 className="flex items-center p-4 border-b border-gray-100 hover:bg-blue-50 transition-colors cursor-pointer group"
                 onClick={() => onFolderClick && onFolderClick(item)}
             >
-                <div className="flex-shrink-0 mr-4 w-5 h-5"></div> {/* Spacer to align with files */}
+                <div className="flex-shrink-0 mr-4 w-5 h-5"></div>
                 
                 <div className="flex-shrink-0 mr-4 bg-blue-100 p-2 rounded-lg group-hover:bg-blue-200 transition-colors">
                     <Folder className="w-6 h-6 text-blue-600 fill-blue-100" />
@@ -61,21 +61,17 @@ export const FileListItem: React.FC<FileListItemProps> = ({ fileState, onFolderC
     const getStatusBadge = () => {
         switch (status) {
             case 'analyzing':
-                return <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">Analyzing Image...</span>;
+                return <span className="px-2 py-1 text-xs font-medium bg-blue-100 text-blue-800 rounded-full animate-pulse">Analizando Lote...</span>;
             case 'renaming':
-                return <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">Renaming...</span>;
+                return <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-800 rounded-full">Renombrando...</span>;
             case 'success':
-                return <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">Done</span>;
+                return <span className="px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">Renombrado</span>;
             case 'error':
                 return <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full" title={errorMessage}>Error</span>;
             default:
                 return null;
         }
     };
-
-    const isImageOrPdf = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'pdf'].includes(
-        (item.FileName || item.Name || '').split('.').pop()?.toLowerCase() || ''
-    );
 
     return (
         <div 
@@ -155,19 +151,27 @@ export const FileListItem: React.FC<FileListItemProps> = ({ fileState, onFolderC
                 <div className="flex-1 min-w-0">
                     {newName ? (
                         <div>
-                            <p className="text-sm font-bold text-blue-700 truncate font-mono" title={newName}>
-                                {newName}
-                            </p>
-                            {(suggestedCategory || extractedInvoice || extractedStoreName) && (
+                            <div className="flex items-center gap-2">
+                                {shortName && (
+                                    <span className="px-2 py-0.5 text-[10px] font-bold bg-blue-600 text-white rounded-md tracking-wider flex items-center gap-1">
+                                        <Tag className="w-2.5 h-2.5" /> {shortName}
+                                    </span>
+                                )}
+                                <p className="text-sm font-bold text-blue-700 truncate font-mono" title={newName}>
+                                    {newName}
+                                </p>
+                            </div>
+                            {(docType || storeUsed || extractedInvoice) && (
                                 <p className="text-xs text-gray-500 flex flex-wrap gap-x-3 gap-y-1 mt-1">
-                                    {extractedInvoice && extractedInvoice !== 'NO_INVOICE' && <span>Invoice: <span className="font-medium">{extractedInvoice}</span></span>}
-                                    {extractedStoreName && extractedStoreName !== 'UNKNOWN_STORE' && <span>Store: <span className="font-medium">{extractedStoreName}</span></span>}
-                                    {suggestedCategory && <span>Category: <span className="font-medium">{suggestedCategory}</span></span>}
+                                    {storeUsed && <span>Store: <span className="font-medium text-gray-700">{storeUsed}</span></span>}
+                                    {extractedInvoice && <span>Invoice: <span className="font-medium text-gray-700">{extractedInvoice}</span></span>}
+                                    {docType && <span>Type: <span className="font-medium text-gray-700">{docType}</span></span>}
+                                    {confidence !== undefined && <span>Conf: <span className="font-medium text-green-600">{Math.round(confidence * 100)}%</span></span>}
                                 </p>
                             )}
                         </div>
                     ) : (
-                        <div className="h-5"></div> // Placeholder to maintain height
+                        <div className="h-5"></div>
                     )}
                 </div>
             </div>
