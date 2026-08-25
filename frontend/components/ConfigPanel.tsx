@@ -1,9 +1,7 @@
 import React from 'react';
-import { Key, FolderOpen, Settings, Download, Save } from 'lucide-react';
+import { FolderOpen, Settings, Download, Save } from 'lucide-react';
 
 interface ConfigPanelProps {
-    token: string;
-    setToken: (val: string) => void;
     folderId: string;
     setFolderId: (val: string) => void;
     onFetchFiles: () => void;
@@ -12,8 +10,6 @@ interface ConfigPanelProps {
 }
 
 export const ConfigPanel: React.FC<ConfigPanelProps> = ({
-    token,
-    setToken,
     folderId,
     setFolderId,
     onFetchFiles,
@@ -22,18 +18,12 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
 }) => {
 
     const handleSaveConfig = () => {
-        // El proxy ya tiene el token, pero la app necesita saber que debe usarlo
+        // El proxy en Cloud Run gestiona la autenticación automáticamente
         const proxyUrl = 'https://seller-assitant-720693669884.europe-west1.run.app';
         
-        // Guarda la URL del proxy
         localStorage.setItem('SHAREFILE_PROXY_URL', proxyUrl);
         localStorage.setItem('SHAREFILE_ACCESS_TOKEN', 'proxy-uses-token-in-backend');
-        
-        // Activa el modo proxy (no sandbox)
         localStorage.setItem('USE_PROXY', 'true');
-        
-        // Actualiza el estado local para que la UI refleje el cambio
-        setToken('proxy-uses-token-in-backend');
         
         console.log('✅ Configuración guardada. Usando proxy en:', proxyUrl);
     };
@@ -51,23 +41,6 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
             </div>
 
             <div className="space-y-6 flex-grow">
-                {/* Token Input */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-                        <Key className="w-4 h-4 text-gray-400" />
-                        ShareFile Token
-                    </label>
-                    <input
-                        type="password"
-                        value={token}
-                        onChange={(e) => setToken(e.target.value)}
-                        placeholder="Bearer token..."
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                        disabled={isProcessing}
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Optional. Handled by proxy server.</p>
-                </div>
-
                 {/* Folder ID Input */}
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
