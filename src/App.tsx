@@ -336,7 +336,7 @@ const App: React.FC = () => {
             logger.info(`[Fase 2: Clasificar] Archivos con nuevo nombre generados: ${filesWithNewName.length} de ${batchResults.length}`);
 
             if (filesWithNewName.length === 0) {
-                throw new Error('Vertex AI Gemini no devolvió sugerencias de nombres válidos.');
+                throw new Error('Gemini no devolvió sugerencias de nombres válidos.');
             }
 
             // Map suggestions back into file states
@@ -575,7 +575,7 @@ const App: React.FC = () => {
                     <div className="bg-blue-50 border-b border-blue-200 px-8 py-3 flex items-center justify-between text-blue-800 text-sm">
                         <div className="flex items-center gap-2">
                             <Sparkles className="w-4 h-4 animate-spin text-blue-600" />
-                            <span className="font-semibold">Fase 2: Analizando contexto completo de la carpeta con Vertex AI...</span>
+                            <span className="font-semibold">Fase 2: Analizando contexto completo de la carpeta con Gemini AI...</span>
                         </div>
                         <span className="text-xs text-blue-600 font-mono">Aplicando fórmula estricta: Store_Invoice_ShortName.ext</span>
                     </div>

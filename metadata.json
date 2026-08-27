@@ -1,0 +1,8 @@
+{
+  "name": "Sales Assistant - Auto Renamer",
+  "description": "A tool for salespeople to automatically batch rename image files in Citrix ShareFile folders using Gemini multimodal folder context classification and strict official nomenclature.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

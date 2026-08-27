@@ -1,4 +1,0 @@
-{
-  "name": "Sales Assistant - Auto Renamer",
-  "description": "A tool for salespeople to automatically batch rename image files in Citrix ShareFile folders using Vertex AI Gemini multimodal folder context classification and strict official nomenclature."
-}

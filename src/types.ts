@@ -52,6 +52,7 @@ export interface FileProcessState {
     docType?: string;
     shortName?: ShareFileShortName;
     suggestedName?: string;
+    newName?: string;
     storeUsed?: string;
     extractedInvoice?: string;
     confidence?: number;
